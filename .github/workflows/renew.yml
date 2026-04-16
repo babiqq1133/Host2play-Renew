@@ -2,8 +2,8 @@ name: Auto Renew Server Script
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 */3 * * *'     # 每 3 小时运行一次（可改为 */2）
+  #schedule:
+  # - cron: '0 */3 * * *'
 
 jobs:
   run-renew:
@@ -20,57 +20,41 @@ jobs:
 
       - name: Install System Dependencies
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y xvfb ffmpeg unzip curl
-          # 安装 Google Chrome Stable
+          sudo apt-get update
+          sudo apt-get install -y xvfb ffmpeg unzip
           wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
           sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
-          sudo apt-get update -qq
           sudo apt-get install -y google-chrome-stable
-          google-chrome --version
 
-      - name: 🛡️ 启动 Gost 代理转发（推荐 go-gost v3）
-        env:
-          GOST_PROXY: ${{ secrets.GOST_PROXY }}
+      - name: 🛡️ 启动 Gost 代理转发
         run: |
-          if [ -z "$GOST_PROXY" ]; then
-            echo "⚠️ 未设置 GOST_PROXY，将直接运行（风险较高）"
-          else
-            echo "🚀 下载并启动最新 go-gost..."
-            wget -q https://github.com/go-gost/gost/releases/download/v3.2.6/gost-linux-amd64.tar.gz -O gost.tar.gz
-            tar -xzf gost.tar.gz
-            chmod +x gost
-            sudo mv gost /usr/local/bin/gost
-
-            echo "启动 Gost 隧道: -L http://:8080 -F $GOST_PROXY"
-            nohup gost -L http://:8080 -F "$GOST_PROXY" > gost.log 2>&1 &
-            sleep 6
-
-            echo "✅ 测试代理连通性..."
-            curl -x http://127.0.0.1:8080 -m 12 -I https://api.ipify.org || echo "❌ 代理测试失败，请检查 secrets.GOST_PROXY"
-          fi
+          wget https://github.com/ginuerzh/gost/releases/download/v2.11.5/gost-linux-amd64-2.11.5.gz
+          gunzip gost-linux-amd64-2.11.5.gz
+          chmod +x gost-linux-amd64-2.11.5
+          mv gost-linux-amd64-2.11.5 gost
+          echo "启动 Gost 转发隧道..."
+          nohup ./gost -L http://:8080 -F ${{ secrets.GOST_PROXY }} > gost.log 2>&1 &
+          sleep 3
+          echo "测试本地代理连通性..."
+          curl -x http://127.0.0.1:8080 https://api.ipify.org -v
 
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install DrissionPage xvfbwrapper requests SpeechRecognition pydub python-dotenv
+          pip install DrissionPage xvfbwrapper requests SpeechRecognition pydub
 
       - name: Run Renew Script
         env:
           RENEW_URL: ${{ secrets.RENEW_URL }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          PROXY: http://127.0.0.1:8080
+          PROXY: http://127.0.0.1:8080  # 这里改为 Socks5
         run: python main.py
 
-      - name: Upload Debug Files
+      - name: Upload Error Screenshots
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: debug-files-${{ github.run_id }}
-          path: |
-            ./*.html
-            gost.log
-            error_*.html
-            *.log
-          retention-days: 7
+          name: debug-screenshots
+          path: ./*.html
+          retention-days: 5
